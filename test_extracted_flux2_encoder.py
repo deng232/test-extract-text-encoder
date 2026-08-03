@@ -430,7 +430,8 @@ def run_gpu_test(config: TestConfig) -> None:
     pipe = Flux2Pipeline.from_pretrained(
         config.pipeline_repo,
         text_encoder=None,
-        torch_dtype=dtype,
+        tokenizer=None,
+        dtype=dtype,
     )
     pipe = pipe.to(device)
 
