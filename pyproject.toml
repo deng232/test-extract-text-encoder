@@ -30,6 +30,9 @@ cloud = [
 [project.scripts]
 extract-textencoder = "extract_textencoder.cli:main"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/extract_textencoder"]
 
