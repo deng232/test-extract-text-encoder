@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "extract-textencoder"
+version = "0.1.0"
+description = "Extract a Mistral Small 3.2 checkpoint into a FLUX.2 text encoder"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "hf-xet>=1.1",
+  "huggingface-hub>=0.34",
+  "numpy>=1.26",
+  "safetensors>=0.5",
+  "torch>=2.4",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+cloud = [
+  "accelerate>=1.0",
+  "bitsandbytes>=0.45",
+  "diffusers @ git+https://github.com/huggingface/diffusers.git",
+  "pillow>=10.0",
+  "transformers>=4.53",
+]
+
+[project.scripts]
+extract-textencoder = "extract_textencoder.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/extract_textencoder"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
