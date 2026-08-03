@@ -323,7 +323,13 @@ def run_gpu_test(config: TestConfig) -> None:
             )
 
     print(f"Loading extracted encoder on {device}...")
-    with init_empty_weights(include_buffers=True):
+    # Keep the 35+ GiB of parameters on the meta device until Accelerate loads
+    # their checkpoint values. Buffers must remain real CPU tensors because
+    # Transformers creates non-persistent runtime buffers (for example RoPE
+    # state) that are intentionally absent from the safetensors checkpoint.
+    # Making those buffers meta tensors leaves Accelerate with no data to move
+    # when it dispatches the completed module to CUDA.
+    with init_empty_weights(include_buffers=False):
         encoder = ExtractedFlux2TextEncoder()
     encoder = load_checkpoint_and_dispatch(
         encoder,
