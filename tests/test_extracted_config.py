@@ -22,8 +22,6 @@ def write_config(path: Path, *, overrides: str = "") -> Path:
         """
 [model]
 checkpoint = "encoder.safetensors"
-source_model_repo = "owner/source"
-processor_repo = "owner/processor"
 pipeline_repo = "owner/pipeline"
 device = "cuda:0"
 dtype = "bfloat16"

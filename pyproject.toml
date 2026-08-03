@@ -22,10 +22,10 @@ dev = [
   "accelerate>=1.0",
   "bitsandbytes>=0.45",
   "diffusers @ git+https://github.com/huggingface/diffusers.git",
+  "mistral-common>=1.8",
   "pillow>=10.0",
   "pytest>=8.0",
   "transformers>=4.53",
-  "torchvision>=0.19",
 ]
 
 [project.scripts]

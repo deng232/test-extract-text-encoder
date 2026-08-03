@@ -6,6 +6,7 @@ import argparse
 import gc
 import re
 import sys
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,8 +35,6 @@ class PromptConfig:
 @dataclass(frozen=True)
 class TestConfig:
     checkpoint: Path
-    source_model_repo: str
-    processor_repo: str
     pipeline_repo: str
     device: str
     dtype: str
@@ -168,8 +167,6 @@ def load_config(path: Path) -> TestConfig:
     directory = config_path.parent
     return TestConfig(
         checkpoint=_relative_path(directory, _string(model, "checkpoint")),
-        source_model_repo=_string(model, "source_model_repo"),
-        processor_repo=_string(model, "processor_repo"),
         pipeline_repo=_string(model, "pipeline_repo"),
         device=_string(model, "device"),
         dtype=dtype,
@@ -235,9 +232,11 @@ def run_gpu_test(config: TestConfig) -> None:
     import torch
     from accelerate import init_empty_weights, load_checkpoint_and_dispatch
     from diffusers import Flux2Pipeline
+    from mistral_common.protocol.instruct.request import ChatCompletionRequest
+    from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
     from safetensors import safe_open
     from torch import nn
-    from transformers import AutoConfig, AutoProcessor, MistralConfig, MistralModel
+    from transformers import MistralConfig, MistralModel
 
     from extract_textencoder.validation import inspect_saved_file
 
@@ -262,30 +261,32 @@ def run_gpu_test(config: TestConfig) -> None:
         str(config.checkpoint), framework="pt", device="cpu"
     ) as reader:
         tekken_shape = tuple(reader.get_slice("tekken_model").get_shape())
+        tekken_bytes = reader.get_tensor("tekken_model").numpy().tobytes()
 
-    complete_config = AutoConfig.from_pretrained(config.source_model_repo)
-    text_config = complete_config.text_config
-    if isinstance(text_config, dict):
-        text_config = MistralConfig(**text_config)
-    elif not isinstance(text_config, MistralConfig):
-        text_config = MistralConfig(**text_config.to_dict())
-
-    for field, expected in {
-        "hidden_size": EXPECTED_HIDDEN_SIZE,
-        "intermediate_size": 32768,
-        "num_attention_heads": 32,
-        "num_key_value_heads": 8,
-        "vocab_size": 131072,
-    }.items():
-        actual = getattr(text_config, field)
-        if actual != expected:
-            raise TestFailure(
-                f"Source configuration has incompatible {field}: "
-                f"expected {expected}, got {actual}."
-            )
-    text_config.num_hidden_layers = 30
-    text_config.use_cache = False
-    text_config.output_hidden_states = True
+    # The converter accepts only this exact architecture, and the structural
+    # inspection above rechecks every stored tensor shape. Constructing the
+    # fixed text configuration locally keeps the runtime test independent of
+    # the original Hugging Face model repository.
+    text_config = MistralConfig(
+        vocab_size=131072,
+        hidden_size=EXPECTED_HIDDEN_SIZE,
+        intermediate_size=32768,
+        num_hidden_layers=30,
+        num_attention_heads=32,
+        num_key_value_heads=8,
+        head_dim=128,
+        hidden_act="silu",
+        max_position_embeddings=131072,
+        rms_norm_eps=1e-5,
+        use_cache=False,
+        rope_theta=1_000_000_000.0,
+        sliding_window=None,
+        attention_dropout=0.0,
+        attention_bias=False,
+        mlp_bias=False,
+        tie_word_embeddings=False,
+        output_hidden_states=True,
+    )
 
     class ExtractedFlux2TextEncoder(nn.Module):
         def __init__(self) -> None:
@@ -340,8 +341,56 @@ def run_gpu_test(config: TestConfig) -> None:
     )
     encoder.eval()
 
-    print(f"Loading processor: {config.processor_repo}")
-    processor = AutoProcessor.from_pretrained(config.processor_repo)
+    class EmbeddedTekkenProcessor:
+        """Text-only processor backed by tekken_model from the checkpoint."""
+
+        def __init__(self, tokenizer: MistralTokenizer) -> None:
+            self.tokenizer = tokenizer
+
+        def apply_chat_template(
+            self,
+            messages_batch: list[list[dict[str, Any]]],
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool,
+            return_dict: bool,
+            return_tensors: str,
+            padding: str,
+            truncation: bool,
+            max_length: int,
+        ) -> dict[str, torch.Tensor]:
+            if add_generation_prompt:
+                raise TestFailure("FLUX.2 encoding must not add a generation prompt.")
+            if not tokenize or not return_dict or return_tensors != "pt":
+                raise TestFailure("Diffusers requested an unsupported tokenizer mode.")
+            if padding != "max_length" or not truncation:
+                raise TestFailure("Diffusers requested unsupported padding or truncation.")
+
+            raw_tokenizer = self.tokenizer.instruct_tokenizer.tokenizer
+            pad_id = raw_tokenizer.pad_id
+            rows: list[list[int]] = []
+            masks: list[list[int]] = []
+            for messages in messages_batch:
+                request = ChatCompletionRequest.from_openai(messages=messages)
+                token_ids = self.tokenizer.encode_chat_completion(request).tokens
+                token_ids = token_ids[:max_length]
+                pad_count = max_length - len(token_ids)
+                # Match causal-language-model batching: padding precedes the
+                # actual conversation while truncation retains its beginning.
+                rows.append([pad_id] * pad_count + token_ids)
+                masks.append([0] * pad_count + [1] * len(token_ids))
+            return {
+                "input_ids": torch.tensor(rows, dtype=torch.long),
+                "attention_mask": torch.tensor(masks, dtype=torch.long),
+            }
+
+    tokenizer_directory = tempfile.TemporaryDirectory(
+        prefix="extract-textencoder-tekken-"
+    )
+    tokenizer_path = Path(tokenizer_directory.name) / "tekken.json"
+    tokenizer_path.write_bytes(tekken_bytes)
+    processor = EmbeddedTekkenProcessor(MistralTokenizer.from_file(tokenizer_path))
+    print("Loaded embedded Tekken tokenizer from the converted checkpoint.")
     embedding_helper = getattr(
         Flux2Pipeline, "_get_mistral_3_small_prompt_embeds", None
     )
@@ -371,6 +420,7 @@ def run_gpu_test(config: TestConfig) -> None:
     prompt_embeds = prompt_embeds.detach().to(device="cpu", dtype=dtype)
     del encoder
     del processor
+    tokenizer_directory.cleanup()
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.synchronize(device)

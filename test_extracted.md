@@ -39,8 +39,6 @@ The default model section points to the checkpoint created by this repository:
 ```toml
 [model]
 checkpoint = "mistral_3_small_flux2_huihui_bf16.safetensors"
-source_model_repo = "huihui-ai/Huihui-Mistral-Small-3.2-24B-Instruct-2506-abliterated"
-processor_repo = "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
 pipeline_repo = "diffusers/FLUX.2-dev-bnb-4bit"
 device = "cuda:0"
 dtype = "bfloat16"
@@ -81,6 +79,10 @@ python test_extracted_flux2_encoder.py --config /path/to/test.toml
 ```
 
 ## Automated checks
+
+The script reads `tekken_model` directly from the converted checkpoint and uses
+it through Mistral's text-only tokenizer. It does not download the original LLM
+repository or a separate Hugging Face processor.
 
 Before image generation, the script requires:
 

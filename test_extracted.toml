@@ -1,7 +1,5 @@
 [model]
 checkpoint = "mistral_3_small_flux2_huihui_bf16.safetensors"
-source_model_repo = "huihui-ai/Huihui-Mistral-Small-3.2-24B-Instruct-2506-abliterated"
-processor_repo = "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
 pipeline_repo = "diffusers/FLUX.2-dev-bnb-4bit"
 device = "cuda:0"
 dtype = "bfloat16"
