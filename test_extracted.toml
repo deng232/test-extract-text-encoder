@@ -1,0 +1,27 @@
+[model]
+checkpoint = "mistral_3_small_flux2_huihui_bf16.safetensors"
+source_model_repo = "huihui-ai/Huihui-Mistral-Small-3.2-24B-Instruct-2506-abliterated"
+processor_repo = "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
+pipeline_repo = "diffusers/FLUX.2-dev-bnb-4bit"
+device = "cuda:0"
+dtype = "bfloat16"
+
+[generation]
+output_directory = "flux2_encoder_test"
+seed = 42
+max_sequence_length = 512
+hidden_state_layers = [10, 20, 30]
+height = 768
+width = 768
+num_inference_steps = 28
+guidance_scale = 4.0
+overwrite_outputs = false
+
+[[prompts]]
+name = "red_cube"
+text = "A studio photograph of a bright red metal cube standing on a white table, plain gray background, soft shadow, centered."
+
+[[prompts]]
+name = "blue_sphere"
+text = "A studio photograph of a bright blue glass sphere standing on a white table, plain gray background, soft shadow, centered."
+

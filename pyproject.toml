@@ -19,19 +19,9 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
-cloud = [
-  "accelerate>=1.0",
-  "bitsandbytes>=0.45",
-  "diffusers @ git+https://github.com/huggingface/diffusers.git",
-  "pillow>=10.0",
-  "transformers>=4.53",
-]
 
 [project.scripts]
 extract-textencoder = "extract_textencoder.cli:main"
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/extract_textencoder"]

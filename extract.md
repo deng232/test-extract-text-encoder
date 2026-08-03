@@ -121,7 +121,7 @@ prompt -> embedded Tekken tokenizer -> embedding -> layers 0-29
        -> hidden states 10, 20, 30 -> 15360-wide FLUX.2 conditioning
 ```
 
-Perform the GPU test in `test_extracted.md` on the remote machine before
-judging semantic quality. A structurally valid fine-tuned or abliterated model
-may still align worse with the diffusion transformer than the official encoder.
-
+Configure `test_extracted.toml` and run `test_extracted_flux2_encoder.py` on the
+GPU machine before judging semantic quality; `test_extracted.md` describes the
+acceptance criteria. A structurally valid fine-tuned or abliterated model may
+still align worse with the diffusion transformer than the official encoder.

@@ -58,6 +58,6 @@ uv run extract-textencoder inspect mistral_3_small_flux2_bf16.safetensors
 The inspector checks tensor names, shapes, dtypes, layer coverage, tokenizer
 packaging, and forbidden weights without loading or running the transformer.
 
-For design details and the remote GPU validation walkthrough, see
-[`extract.md`](extract.md) and [`test_extracted.md`](test_extracted.md).
-
+For design details, see [`extract.md`](extract.md). After conversion, configure
+[`test_extracted.toml`](test_extracted.toml) and run the standalone end-to-end
+test described in [`test_extracted.md`](test_extracted.md).
