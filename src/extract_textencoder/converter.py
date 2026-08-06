@@ -25,6 +25,7 @@ from .validation import (
 
 
 def human_size(byte_count: int) -> str:
+    """Format a byte count using binary units for progress messages."""
     value = float(byte_count)
     for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
         if value < 1024.0 or unit == "TiB":
@@ -40,7 +41,16 @@ def convert(
     overwrite: bool = False,
     allow_non_bf16: bool = False,
 ) -> dict[str, object]:
+    """Extract the FLUX.2-required portion of a compatible Mistral checkpoint.
+
+    Source tensors are kept in their original dtype and are never passed
+    through a Transformers model. The completed file is installed only after
+    it passes an independent structural inspection.
+    """
     output = output.expanduser().resolve()
+
+    # Refuse accidental replacement before downloading or opening large model
+    # shards. A directory is never a valid output, even with --overwrite.
     if output.exists() and not overwrite:
         raise ConversionError(
             f"Output already exists: {output}\nUse --overwrite to replace it."
@@ -57,8 +67,14 @@ def convert(
     config = load_json_object(source.get("config.json"))
     validate_source_config(config)
     index = load_json_object(source.get("model.safetensors.index.json"))
+
+    # The index is the source of truth for selecting only the embedding and
+    # layers 0-29. This avoids fetching known-unneeded shards when the source
+    # repository's layout permits it.
     selected = find_selected_weights(index)
 
+    # ComfyUI reconstructs the tokenizer from this top-level byte tensor, so
+    # retain the exact tokenizer shipped with the source checkpoint.
     tekken_bytes = source.get("tekken.json").read_bytes()
     validate_tekken_bytes(tekken_bytes)
 
@@ -68,9 +84,15 @@ def convert(
         print(f"Resolving shard {position}/{len(shard_names)}: {shard_name}")
         shard_paths[shard_name] = source.get(shard_name)
 
+    # Write beside the destination so os.replace remains an atomic rename on
+    # the same filesystem. The UUID also prevents concurrent conversions from
+    # sharing an incomplete file.
     temporary = output.with_name(f".{output.name}.{uuid.uuid4().hex}.incomplete")
     try:
         with ExitStack() as stack:
+            # Keep every reader open until save_file finishes. Tensors returned
+            # by safe_open may reference the readers' memory-mapped storage;
+            # closing a reader early would invalidate those views.
             readers = {
                 name: stack.enter_context(
                     safe_open(str(path), framework="pt", device="cpu")
@@ -85,6 +107,8 @@ def convert(
                         f"Index maps {source_key!r} to {shard_name!r}, but the "
                         "shard does not contain that tensor."
                     )
+                # get_tensor exposes the safetensors-backed CPU data without
+                # constructing the full language model or converting weights.
                 tensor = reader.get_tensor(source_key)
                 if not tensor.is_floating_point():
                     raise ConversionError(
@@ -103,11 +127,15 @@ def convert(
                     raise ConversionError(f"Duplicate output key: {destination_key}")
                 output_tensors[destination_key] = tensor
 
+            # bytearray provides writable storage for torch.frombuffer and
+            # produces the uint8 representation expected by ComfyUI.
             output_tensors["tekken_model"] = torch.frombuffer(
                 bytearray(tekken_bytes), dtype=torch.uint8
             )
             validate_output_tensors(output_tensors)
 
+            # Check tensor payload size rather than relying on a rough model
+            # estimate. Safetensors headers add only a small amount on top.
             output_bytes = sum(
                 tensor.numel() * tensor.element_size()
                 for tensor in output_tensors.values()
@@ -133,11 +161,15 @@ def convert(
             print(f"Writing temporary checkpoint: {temporary}")
             save_file(output_tensors, str(temporary), metadata=metadata)
 
+        # Reopen the serialized file after all source mappings are closed. This
+        # verifies what was actually written rather than the in-memory mapping.
         print("Validating saved checkpoint...")
         result = inspect_saved_file(temporary)
         print("Installing validated checkpoint...")
         os.replace(temporary, output)
     except Exception:
+        # Cleanup is limited to this invocation's UUID-named temporary file;
+        # an existing destination is left untouched on every failure path.
         if temporary.exists():
             try:
                 temporary.unlink()
