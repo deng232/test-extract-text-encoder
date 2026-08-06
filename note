@@ -1,0 +1,27 @@
+Is current workflow is "cut model" -> "pack to comfyui format"
+
+
+• Yes. The current workflow is essentially:
+
+  Full compatible Mistral Small 3.2 checkpoint
+      ↓
+  Cut/prune to embedding + transformer layers 0–29
+      ↓
+  Remove layers 30–39, final norm, LM head, vision tower, and projector
+      ↓
+  Rename Hugging Face keys:
+  language_model.model.* → model.*
+      ↓
+  Embed tekken.json as the uint8 tensor tekken_model
+      ↓
+  Package everything into one standalone .safetensors file
+      ↓
+  Load from ComfyUI/models/text_encoders/
+
+  So it performs two operations:
+
+  1. Model pruning: retains only the components FLUX.2 uses for hidden states 10, 20, and 30.
+  2. ComfyUI packaging: rewrites keys and embeds the tokenizer in ComfyUI’s expected standalone format.
+
+  It does not retrain, fine-tune, quantize, or fundamentally convert the causal LLM architecture into a different encoder
+  architecture. ComfyUI simply uses the pruned transformer as a hidden-state text encoder.
